@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const video = document.getElementById("video");
+    const shareLink = document.getElementById("shareLink");
+
+    let roomId = null;
+
+    function generateRoomId() {
+      return Math.random().toString(36).substring(2, 8);
+    }
+
+    async function createRoom() {
+      const file = document.getElementById("fileInput").files[0];
+      if (!file) return alert("Select a file first");
+
+      const fileName = Date.now() + "-" + file.name;
+
+      const { error } = await supabaseClient.storage
+        .from("movies")
+        .upload(fileName, file);
+
+      if (error) return alert("Upload failed");
+
+      const { data } = supabaseClient.storage
+        .from("movies")
+        .getPublicUrl(fileName);
+
+      const videoUrl = data.publicUrl;
+
+      roomId = generateRoomId();
+
+      const link = `${window.location.origin}?room=${roomId}&video=${encodeURIComponent(videoUrl)}`;
+      shareLink.innerHTML = `Share this link: <br><a href="${link}" target="_blank">${link}</a>`;
+
+      joinRoom(roomId, videoUrl);
+    }
+
+    function joinRoom(id, videoUrl) {
+      roomId = id;
+      socket.emit("join-room", { roomId, videoUrl });
+    }
+
+    // Auto-join if link has params
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("room") && params.get("video")) {
+      const id = params.get("room");
+      const videoUrl = decodeURIComponent(params.get("video"));
+      joinRoom(id, videoUrl);
+    }
+
+    socket.on("init", ({ videoUrl, time, isPlaying }) => {
+      video.src = videoUrl;
+      video.currentTime = time;
+      if (isPlaying) video.play();
+    });
+
+    video.addEventListener("play", () => {
+      socket.emit("sync", { roomId, action: "play", time: video.currentTime });
+    });
+
+    video.addEventListener("pause", () => {
+      socket.emit("sync", { roomId, action: "pause", time: video.currentTime });
+    });
+
+    video.addEventListener("seeked", () => {
+      socket.emit("sync", { roomId, action: "seek", time: video.currentTime });
+    });
+
+    socket.on("sync", ({ action, time }) => {
+      if (action === "play") {
+        video.currentTime = time;
+        video.play();
+      }
+      if (action === "pause") {
+        video.currentTime = time;
+        video.pause();
+      }
+      if (action === "seek") {
+        video.currentTime = time;
+      }
+    });
+  </script>
+</body>
+</html>
